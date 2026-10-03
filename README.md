@@ -68,7 +68,7 @@ require("markdown-preview").setup({
     name = "system", -- "system" follows the browser, "light" or "dark" forces one.
     high_contrast = false, -- Use GitHub's high-contrast colors for the theme.
   },
-  details_tags_open = true, -- Render <details> elements open.
+  details_tags_open = true, -- true opens every <details>; false shows each as written. Video players stay open.
   cursor_line = {
     disable = false, -- true hides the band that marks the cursor line.
     color = "#c86414", -- CSS color of the band.

@@ -168,7 +168,8 @@ theme.high_contrast              *markdown-preview-config.theme.high_contrast*
 
 details_tags_open                  *markdown-preview-config.details_tags_open*
     Type: boolean, default: `true`
-    Render `<details>` elements open.
+    `true` renders every `<details>` element open; `false` renders each one
+    as the author wrote it. Video players stay open in both cases.
 
 cursor_line                              *markdown-preview-config.cursor_line*
     Type: table with the keys below.
