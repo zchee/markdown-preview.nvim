@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en" data-mp-render="loading">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' https: data:; media-src 'self' https:; font-src https://cdn.jsdelivr.net data:; connect-src 'self' https://cdn.jsdelivr.net; base-uri 'none'; form-action 'none'">
+<title>Render harness</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/web/app.css">
+<script type="module" src="harness.js"></script>
+</head>
+<body>
+<div id="mp-status" role="status" hidden></div>
+<main id="mp-page">
+  <div id="mp-errors" role="alert" hidden></div>
+  <article id="mp-body" class="markdown-body"></article>
+</main>
+<div id="mp-cursor" aria-hidden="true" hidden></div>
+</body>
+</html>
