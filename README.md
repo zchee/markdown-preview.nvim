@@ -99,6 +99,11 @@ require("markdown-preview").setup({
   mode 0600. `vim.ui.open` or your `browser` command opens that file. The file is deleted 10 seconds
   later, and when the preview stops. A custom `browser` command must therefore be able to open a local
   `.html` file. The URL itself is still shown in a Neovim notification.
+- With `browser = nil`, `vim.ui.open` hands that `.html` file to the system's handler for HTML files
+  (`open` on macOS, `xdg-open` on Linux, `explorer` on Windows). On a machine where `.html` files open
+  in an editor or IDE, the preview opens there instead of in a browser. Name a browser explicitly in that
+  case, for example `browser = { "open", "-a", "Firefox" }` on macOS or `browser = { "firefox" }` /
+  `browser = { "google-chrome" }` on Linux.
 - `cdn` must be an `https://` URL. `http://` is accepted only for a loopback host (`localhost`,
   `127.x.x.x` or `::1`). The value may not contain whitespace, control characters, `;` or `,`, because
   its origin is copied into the Content-Security-Policy header.
@@ -252,12 +257,14 @@ when a document needs them.
 ## How it works
 
 1. `:MarkdownPreview start` binds a TCP server on `host` with `vim.uv` and prints
-   `http://<host>:<port>/<token>/`.
+   `http://<address>:<port>/<token>/`, where `<address>` is the literal address `host` resolved to.
 2. The page at that URL opens an event stream (`GET events`, Server-Sent Events). The server sends
    `init` with the whole file, then `content_change`, `cursor_move` and `update_config` events as you
    edit and move, and `goodbye` when it stops.
-3. Neovim sends all lines of the buffer, `debounce_ms` after the last change. The browser renders them
-   and updates the page in place.
+3. The first change after a quiet period starts a `debounce_ms` timer; when it fires, Neovim sends all
+   lines of the buffer, including every change made in the meantime. Continuous typing therefore updates
+   the page at most `debounce_ms` after each change instead of waiting for a pause. The browser renders
+   the lines and updates the page in place.
 4. The browser asks the server for the page's own assets (`assets/`), local images and videos
    (`file/`), and, when you click a relative Markdown link, to switch files (`POST api/open`).
 
