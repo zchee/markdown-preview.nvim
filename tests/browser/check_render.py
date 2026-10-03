@@ -404,6 +404,7 @@ SSE_CONFIG_STEPS: list[tuple[str, str, str]] = [
         "document.documentElement.dataset.mpTheme === 'dark' && document.documentElement.dataset.mpContrast === 'high' && "
         "document.getElementById('mp-markdown-css').getAttribute('href').endsWith('github-markdown-dark-high-contrast.css') && "
         "[...document.querySelectorAll('#mp-body details:not(.mp-video)')].every(d => d.open) && "
+        "document.querySelector('#mp-body details.mp-video')?.open === true && "
         "document.querySelector('[data-mp-kind=mermaid] svg') !== null",
     ),
     (
