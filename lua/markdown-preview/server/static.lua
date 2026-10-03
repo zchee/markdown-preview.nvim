@@ -131,6 +131,10 @@ function M.resolve_decoded(root, rel)
   if rel:sub(1, 1) == "/" then
     return { status = 403, message = "absolute paths are not allowed" }
   end
+  -- normalize() drops a trailing slash; a URL naming a directory must not serve a file.
+  if rel == "" or rel:sub(-1) == "/" then
+    return { status = 404, message = "not found" }
+  end
   local joined = normalize(root .. "/" .. rel)
   if not is_under(joined, root) then
     return { status = 403, message = "path is outside the preview root" }

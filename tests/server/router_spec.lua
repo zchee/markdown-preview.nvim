@@ -144,6 +144,14 @@ describe("router", function()
   it("answers unknown routes with 404 and wrong methods with 405", function()
     local res = h.fetch(port, "GET", base .. "nope")
     assert.are.equal(404, res.status, h.show(res))
+    for _, r in ipairs({ { "POST", "api/open/" }, { "PUT", "nope" }, { "DELETE", "api" } }) do
+      res = h.fetch(port, r[1], base .. r[2])
+      assert.are.equal(404, res.status, r[1] .. " " .. r[2] .. h.show(res))
+    end
+    for _, path in ipairs({ "assets/app.js/", "assets/app.js//", "assets/" }) do
+      res = h.fetch(port, "GET", base .. path)
+      assert.are.equal(404, res.status, path .. " (a file named with a trailing slash)" .. h.show(res))
+    end
     res = h.fetch(port, "GET", base .. "api/open")
     assert.are.equal(405, res.status, h.show(res))
     assert.are.equal("POST", res.headers["allow"], h.show(res))

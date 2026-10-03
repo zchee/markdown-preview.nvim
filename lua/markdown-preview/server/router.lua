@@ -173,6 +173,11 @@ function M.handle(ctx, conn, req)
     return
   end
 
+  local known = route == "" or route == "events" or route:sub(1, 7) == "assets/" or route:sub(1, 5) == "file/"
+  if not known then
+    conn:error(404, "not found")
+    return
+  end
   if req.method ~= "GET" then
     method_not_allowed(conn, "GET")
     return
@@ -195,8 +200,6 @@ function M.handle(ctx, conn, req)
       return
     end
     static.serve_file(conn, r, req, { ["Content-Security-Policy"] = file_csp })
-  else
-    conn:error(404, "not found")
   end
 end
 
