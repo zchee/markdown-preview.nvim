@@ -15,6 +15,7 @@ local M = {}
 ---@field bufnr? integer Buffer providing the content; nil when the content came from disk.
 ---@field lines string[] Last known content (the disk content when bufnr is nil).
 ---@field too_large? boolean The disk file exceeds the size limit and was not read.
+---@field closed? boolean The buffer providing the content was unloaded or wiped.
 
 ---@class markdown_preview.Session
 ---@field token string
@@ -102,7 +103,25 @@ function Session:init_events()
   if too_large then
     out = out .. sse_mod.format("error", { path = self.target.rel, message = too_large_message() })
   end
+  if self.target.closed then
+    out = out .. sse_mod.format("error", { path = self.target.rel, message = M.BUFFER_CLOSED_MESSAGE })
+  end
   return out
+end
+
+M.BUFFER_CLOSED_MESSAGE = "buffer closed; the preview shows its last content"
+
+--- The previewed buffer was unloaded or wiped: keep the last content and tell the pages.
+---@param buf integer
+function Session:buffer_closed(buf)
+  if self.stopped or self.target.bufnr ~= buf then
+    return
+  end
+  self.target.bufnr = nil
+  self.target.closed = true
+  self.timer:stop()
+  self.cursor_pending = false
+  self.sse:broadcast("error", { path = self.target.rel, message = M.BUFFER_CLOSED_MESSAGE })
 end
 
 function Session:broadcast_init()
@@ -173,6 +192,9 @@ function Session:enter_buffer(buf)
   end
   self.target = target_for_buffer(buf)
   buffer.attach(self, buf)
+  -- A change still pending belongs to the previous buffer; init already carries the new content.
+  self.timer:stop()
+  self.cursor_pending = false
   self:broadcast_init()
 end
 
@@ -241,15 +263,6 @@ function Session:stop()
   end
 end
 
----@param host string
----@return string
-local function url_host(host)
-  if host:find(":", 1, true) and not host:match("^%[") then
-    return "[" .. host .. "]"
-  end
-  return host
-end
-
 --- Starts a session previewing `buf`. Returns nil and an error message on failure.
 ---@param buf integer
 ---@return markdown_preview.Session? session, string? err
@@ -308,7 +321,7 @@ function M.start(buf)
   self.timer = assert(uv.new_timer())
   -- The bound literal, not the configured name: a name like localhost may resolve to ::1 while
   -- the browser would try 127.0.0.1 first, or the reverse.
-  self.url = string.format("http://%s:%d/%s/", url_host(server.ip), server.port, self.token)
+  self.url = string.format("http://%s:%d/%s/", router.host_literal(server.ip), server.port, self.token)
   self.augroup = buffer.create_autocmds(self)
   buffer.attach(self, buf)
   return self

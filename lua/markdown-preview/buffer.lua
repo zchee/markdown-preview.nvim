@@ -96,8 +96,11 @@ function M.attach(session, buf)
     on_lines = changed,
     on_reload = changed,
     on_detach = function()
-      if session.generation == gen and session.target.bufnr == buf then
-        session.target.bufnr = nil
+      if session.generation == gen then
+        -- Detach runs while the buffer is being unloaded; send from the main loop afterwards.
+        vim.schedule(function()
+          session:buffer_closed(buf)
+        end)
       end
     end,
   })
