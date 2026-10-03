@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # The arguments mirror the Makefile `lint` target; the actions are used here so the job
+      # does not have to install a Rust or Lua toolchain to obtain the two linters.
+      - name: stylua
+        uses: JohnnyMorganz/stylua-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: v2.5.2
+          args: --check lua plugin tests
+      - name: luacheck
+        uses: lunarmodules/luacheck@v1
+        with:
+          args: lua plugin tests
+
+  test:
+    name: test (neovim ${{ matrix.neovim }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        neovim:
+          - stable
+          - nightly
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out plenary.nvim
+        uses: actions/checkout@v7
+        with:
+          repository: nvim-lua/plenary.nvim
+          path: .deps/plenary.nvim
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+      - name: Lua specs
+        env:
+          PLENARY_DIR: ${{ github.workspace }}/.deps/plenary.nvim
+        run: make test
+
+  browser:
+    name: browser
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv publishes only immutable full-version tags since v8.0.0 (no floating major
+      # tag exists), so this one action is pinned at its full latest release. Return to a
+      # major-only pin if upstream publishes major tags again.
+      - uses: astral-sh/setup-uv@v10.2.0
+      # The ubuntu-26.04 image ships Google Chrome; the Makefile resolves it from PATH.
+      - name: Headless Chrome checks
+        run: make test-browser
