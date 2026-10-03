@@ -40,15 +40,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 0.11 is the oldest minor version the plugin supports (the README requires it) and v0.11.7
+        # its latest patch release; stable is already a later minor version, so the floor needs
+        # its own entry.
         neovim:
+          - v0.11.7
           - stable
           - nightly
     steps:
       - uses: actions/checkout@v7
+      # Pinned to the master commit of 2026-04-10 so a change upstream cannot break the specs
+      # unannounced; plenary.nvim is scheduled to be archived, so this commit is also its last
+      # expected state.
       - name: Check out plenary.nvim
         uses: actions/checkout@v7
         with:
           repository: nvim-lua/plenary.nvim
+          ref: 74b06c6c75e4eeb3108ec01852001636d85a932b
           path: .deps/plenary.nvim
       - uses: rhysd/action-setup-vim@v1
         with:
