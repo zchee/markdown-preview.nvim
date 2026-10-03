@@ -178,35 +178,59 @@ is sanitized with DOMPurify using GitHub's allowlist.
 
 - Tables, read-only task lists, strikethrough with one or two tildes, footnotes, and the five alert
   types (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`).
-- Emoji shortcodes such as `:smile:`.
-- Heading IDs generated the way github.com does, with its `user-content-` prefix, and anchor links.
-  `#fragment` links scroll within the page.
+- Emoji shortcodes such as `:smile:`. Text emoticons such as `:)` stay text.
+- Heading IDs generated the way github.com does, with anchor links. `#fragment` links scroll within the
+  page.
 - Autolinks for URLs with a scheme, `www.` addresses and email addresses. A bare `example.com` is not
   linked, as on github.com.
-- Math rendered by MathJax: `$…$`, `$$…$$`, `` ```math `` blocks and `` $`…`$ ``.
+- Math rendered by MathJax: `$…$`, `$$…$$` (inline and block), `` ```math `` blocks and `` $`…`$ ``.
 - Mermaid diagrams in `` ```mermaid `` blocks. A diagram that fails to render stays as source text.
 - Syntax highlighting with the starry-night grammars and GitHub's `pl-*` token classes. The common
-  grammar set loads with the first highlighted block; another language named on a code fence is
-  fetched from the CDN when needed. An unknown language stays uncolored, and the browser console shows
-  two failed (404) requests for its grammar.
-- Raw HTML. Scripts, `style` attributes, event-handler attributes, `<svg>`, `<iframe>` and form
-  elements are removed.
+  grammar set loads with the first highlighted block.
+- Raw HTML, including `<details>`, `<sub>`, `<sup>`, `<ins>` and `<kbd>`. HTML comments are hidden.
+  Scripts, `style` attributes, event-handler attributes, `<svg>`, `<iframe>` and form elements are
+  removed.
 - Images with relative paths, served from the preview root. `<picture>` sources that use
   `prefers-color-scheme`, and images whose URL ends in `#gh-dark-mode-only` or `#gh-light-mode-only`,
   follow the selected theme.
-- Links to `.mp4`, `.mov`, `.webm`, `.m4v` and `.ogv` files are shown as a video player.
+- Links to `.mp4`, `.mov`, `.webm`, `.m4v` and `.ogv` files, relative or external, are shown as a video
+  player.
 - Relative links to Markdown files switch the preview. Relative links to image, video and audio files
-  under the root open in a new tab. A relative link to any other kind of file (a PDF, a source file)
-  is shown as text without a link target, with a tooltip saying that only Markdown and media files
-  open from the preview.
+  under the root open in a new tab. A relative link to any other kind of file (a PDF, a source file) is
+  shown as text without a link target, with a tooltip saying that only Markdown and media files open
+  from the preview.
 - Light, dark and high-contrast themes, from github-markdown-css and Primer.
 - A `<details>` element that you open or close in the page keeps its state across edits.
 
+Not supported:
+
+- GeoJSON and TopoJSON maps and STL 3D models. These code blocks are shown as plain code.
+- Autolinks that depend on a repository: `@user`, `#123`, `GH-26`, `owner/repo#123` and commit SHAs.
+  github.com resolves them only in issues, pull requests and discussions.
+- GitHub-only emoji shortcodes such as `:octocat:` and `:shipit:`. They stay text.
+- Color chips for color values in inline code. github.com shows them only in issues, pull requests and
+  discussions.
+- The file-header outline menu, copy buttons on code blocks and the mermaid pan and zoom controls.
+
 Known differences from github.com:
 
-- markdown-it parses the Markdown, not GitHub's cmark-gfm. Edge cases can render differently.
-- The page shows the text first. Code highlighting, math and diagrams are added after it, so they
-  appear a moment later.
+- markdown-it parses the Markdown, not GitHub's cmark-gfm. Rare edge cases in list indentation, tables
+  and HTML blocks can render differently.
+- YAML front matter is not rendered as GitHub's table. It is parsed as Markdown, so the opening `---`
+  line becomes a horizontal rule and the lines up to the closing `---` can become a setext heading.
+- Any link whose URL ends in `.mp4`, `.mov`, `.webm`, `.m4v` or `.ogv` becomes a video player, including
+  links to other sites. github.com does this only for its own uploaded-asset URLs.
+- A code-fence language outside the common grammar set is highlighted only if the CDN has a grammar with
+  the scope `source.<name>` or `text.<name>`. `latex`, `tex`, `jsonc` and `shell-session` stay
+  uncolored. Each such miss shows as two failed (404) requests in the browser console.
+- The `user-content-` prefix of heading IDs is on the heading element. github.com puts it on the anchor
+  inside the heading. `#fragment` links work the same way.
+- MathJax's `\href` and `\style` are removed, and the names given to `\class` and `\cssId` have no
+  effect.
+- A relative link to a repository file that is neither Markdown nor media is shown as text without a
+  link target.
+- The page shows the text first. Code highlighting, math and diagrams are added after it, so they appear
+  a moment later.
 - The styles come from github-markdown-css 5.9.0, a snapshot of GitHub's stylesheet. Later changes on
   github.com are not reflected.
 - If the libraries cannot be loaded from the CDN, the page shows the file as plain text and an error.
@@ -220,19 +244,10 @@ when a document needs them.
 | Plugins | markdown-it-footnote 4.0.0, markdown-it-task-lists 2.1.1, markdown-it-github-alerts 1.0.1, markdown-it-emoji 3.1.0 |
 | Sanitizer | DOMPurify 3.4.16 |
 | DOM update | idiomorph 0.8.0 |
-| Styles | github-markdown-css 5.9.0, @primer/primitives 11.10.0 |
+| Styles | github-markdown-css 5.9.0, @primer/primitives 11.10.0 (light high-contrast colors only) |
 | Math | MathJax 4.1.3 with @mathjax/mathjax-newcm-font 4.1.3 |
 | Diagrams | mermaid 12.1.0 |
 | Code highlighting | @wooorm/starry-night 3.11.0, vscode-textmate 9.3.2, vscode-oniguruma 2.0.1 |
-
-Not supported:
-
-- GeoJSON and TopoJSON maps and STL 3D models. These code blocks are shown as plain code.
-- Autolinks that depend on a repository, such as `#123` and `@user`. github.com resolves them only in
-  issues, pull requests and discussions.
-- GitHub-only emoji shortcodes such as `:octocat:`.
-- Color chips for color values in inline code. github.com shows them only in issues, pull requests and
-  discussions.
 
 ## How it works
 
