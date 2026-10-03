@@ -49,13 +49,17 @@ function safeDecode(text) {
 
 // Resolves `url` against the directory of `docPath` (root-relative when it
 // starts with `/`). Returns undefined for absolute and fragment-only URLs and
-// null when the result would leave the preview root.
+// null when the result would leave the preview root. The path is decoded once
+// before it is split, so an encoded `%2F..%2F` walks the same as `/../`; a
+// segment that still holds `/` (double encoding) or `\` (which browsers treat
+// as a separator) is rejected rather than passed through as a name.
 export function resolveRelative(url, docPath) {
   if (!url || url.startsWith('#') || ABSOLUTE_URL.test(url)) return undefined;
   const [pathPart, suffix] = splitSuffix(url);
-  const segments = pathPart.startsWith('/') ? [] : docPath.split('/').slice(0, -1);
-  for (const raw of pathPart.split('/')) {
-    const seg = safeDecode(raw);
+  const decoded = safeDecode(pathPart);
+  const segments = decoded.startsWith('/') ? [] : docPath.split('/').slice(0, -1);
+  for (const seg of decoded.split('/')) {
+    if (/\\|%2f|%5c/i.test(seg)) return null;
     if (seg === '' || seg === '.') continue;
     if (seg === '..') {
       if (!segments.length) return null;
@@ -200,10 +204,14 @@ function tableAlign(state) {
   }
 }
 
-function configure(libs, trust) {
+function fenceLang(md, token) {
+  return md.utils.unescapeAll(token.info).trim().split(/\s+/)[0];
+}
+
+function configure(libs) {
   const md = new libs.MarkdownIt({ html: true, linkify: true, typographer: false });
   md.linkify.set({ fuzzyLink: true, fuzzyEmail: true });
-  md.use(mathPlugin, trust)
+  md.use(mathPlugin)
     .use(libs.footnote)
     .use(libs.taskLists, { enabled: false })
     .use(libs.alerts, {
@@ -223,7 +231,7 @@ function configure(libs, trust) {
   const esc = md.utils.escapeHtml;
   md.renderer.rules.fence = (tokens, idx, options, env, self) => {
     const token = tokens[idx];
-    const lang = md.utils.unescapeAll(token.info).trim().split(/\s+/)[0];
+    const lang = fenceLang(md, token);
     const attrs = self.renderAttrs(token);
     if (lang === 'math') {
       return `<div${attrs} data-mp-kind="math" class="mp-math-display">${esc(token.content.trim())}</div>\n`;
@@ -264,7 +272,7 @@ function rewriteSrcset(srcset, docPath) {
       const [url, ...descriptor] = candidate.trim().split(/\s+/);
       const resolved = resolveRelative(url, docPath);
       if (resolved === undefined) return candidate.trim();
-      if (resolved === null) return '';
+      if (resolved === null || !MEDIA_FILE.test(resolved.path)) return '';
       return [fileUrl(resolved.path, resolved.suffix), ...descriptor].join(' ');
     })
     .filter(Boolean)
@@ -273,34 +281,70 @@ function rewriteSrcset(srcset, docPath) {
 
 const isControlAttr = (name) => name.startsWith('data-mp-') || name.startsWith('data-line-');
 
+// What the renderer emits for a block token: the element name and the
+// attributes its render rule adds beyond token.attrs (control values and
+// attribute names).
+function emittedBy(md, t) {
+  switch (t.type) {
+    case 'fence': {
+      const lang = fenceLang(md, t);
+      if (!lang) return { tag: 'pre' };
+      if (lang === 'math') return { tag: 'div', control: { 'data-mp-kind': 'math' }, names: ['class'] };
+      if (lang === 'mermaid') return { tag: 'div', control: { 'data-mp-kind': 'mermaid' } };
+      return { tag: 'div', control: { 'data-mp-kind': 'code', 'data-mp-lang': lang }, names: ['class'] };
+    }
+    case 'code_block':
+      return { tag: 'pre' };
+    case 'math_block':
+      return { tag: 'div', control: { 'data-mp-kind': 'math' }, names: ['class'] };
+    case 'alert_open':
+      return { tag: 'div', names: ['class'] };
+    default:
+      return { tag: t.tag };
+  }
+}
+
 // Control attributes (data-mp-*, data-line-*) steer the page: which links call
 // api/open, what gets highlighted or typeset, where scroll sync anchors lines.
-// They are kept only on elements the renderer emitted, which carry the
-// per-page `data-mp-trust` nonce; authored HTML cannot know it. Line values are
-// rebased from segment-relative to absolute and must land inside the document.
+// The renderer stamps each element it emits with `data-mp-trust="<nonce>:<k>"`
+// and records, per segment, what element k is and exactly which attributes it
+// carries. A stamp is honoured once, only on an element of the recorded name,
+// and then the element keeps only the recorded attributes with the recorded
+// control values. Authored HTML that swallows a stamp (an unterminated tag
+// absorbing the next renderer element) therefore gains nothing. Any attribute
+// value holding the nonce is dropped. Line values are rebased from
+// segment-relative to absolute and must land inside the document.
 function checkControlAttrs(node, trust, state) {
-  const trusted = node.getAttribute('data-mp-trust') === trust;
-  for (const { name } of [...node.attributes]) {
-    if (isControlAttr(name) && !trusted) node.removeAttribute(name);
-  }
-  if (!trusted) return;
+  const stamp = node.getAttribute('data-mp-trust');
   node.removeAttribute('data-mp-trust');
-  const start = node.getAttribute('data-line-start');
-  if (start === null) return;
-  const abs = [start, node.getAttribute('data-line-end') ?? start].map((v) =>
-    /^\d+$/.test(v) ? Number(v) + state.base : Number.NaN,
-  );
-  if (abs.every((v) => v < state.lineCount) && abs[0] <= abs[1]) {
+  let rec = stamp?.startsWith(`${trust}:`) ? state.stamps.get(stamp.slice(trust.length + 1)) : undefined;
+  if (rec && (rec.used || rec.tag !== node.localName)) rec = undefined;
+  if (rec) rec.used = true;
+  for (const { name, value } of [...node.attributes]) {
+    if (value.includes(trust) || isControlAttr(name) || (rec && !rec.names.has(name))) {
+      node.removeAttribute(name);
+    }
+  }
+  if (!rec) return;
+  for (const [name, value] of Object.entries(rec.control)) {
+    if (name !== 'data-line-start' && name !== 'data-line-end') node.setAttribute(name, value);
+  }
+  const start = rec.control['data-line-start'];
+  if (start === undefined) return;
+  const abs = [start, rec.control['data-line-end'] ?? start].map((v) => Number(v) + state.base);
+  if (abs.every((v) => Number.isInteger(v) && v >= 0 && v < state.lineCount) && abs[0] <= abs[1]) {
     node.setAttribute('data-line-start', String(abs[0]));
     node.setAttribute('data-line-end', String(abs[1]));
-  } else {
-    node.removeAttribute('data-line-start');
-    node.removeAttribute('data-line-end');
   }
 }
 
 function makeSanitizer(DOMPurify, trust, state) {
   const purify = DOMPurify(window);
+  // Authored raw-text content (e.g. an unterminated attribute or a dropped
+  // <textarea>) can swallow renderer markup; its stamps must not show as text.
+  purify.addHook('uponSanitizeElement', (node) => {
+    if (node.nodeType === Node.TEXT_NODE && node.data.includes(trust)) node.data = node.data.replaceAll(trust, '');
+  });
   purify.addHook('afterSanitizeAttributes', (node) => {
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     checkControlAttrs(node, trust, state);
@@ -308,7 +352,8 @@ function makeSanitizer(DOMPurify, trust, state) {
       case 'IMG': {
         const src = node.getAttribute('src');
         const resolved = resolveRelative(src, state.path);
-        if (resolved === null) node.removeAttribute('src');
+        // file/ serves media only; anything else could never load.
+        if (resolved === null || (resolved && !MEDIA_FILE.test(resolved.path))) node.removeAttribute('src');
         else if (resolved) node.setAttribute('src', fileUrl(resolved.path, resolved.suffix));
         if (node.hasAttribute('srcset')) {
           node.setAttribute('srcset', rewriteSrcset(node.getAttribute('srcset'), state.path));
@@ -392,13 +437,20 @@ function videoPlayer(link) {
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr',
 ]);
+// Elements whose end tag may be omitted: the parser closes them implicitly, so
+// an unclosed one does not hold the following blocks inside it.
+const OPTIONAL_END_TAGS = new Set([
+  'p', 'li', 'dt', 'dd', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot', 'caption', 'colgroup', 'option', 'optgroup',
+]);
 const TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)[^>]*?(\/?)>/g;
+const COMMENT = /<!--[\s\S]*?(?:-->|$)/g;
 
 // Net count of HTML elements an authored HTML block leaves open (or closes).
 function htmlDepth(html) {
   let depth = 0;
-  for (const [, close, name, selfClose] of html.matchAll(TAG)) {
-    if (selfClose || VOID_TAGS.has(name.toLowerCase())) continue;
+  for (const [, close, tag, selfClose] of html.replace(COMMENT, '').matchAll(TAG)) {
+    const name = tag.toLowerCase();
+    if (selfClose || VOID_TAGS.has(name) || OPTIONAL_END_TAGS.has(name)) continue;
     depth += close ? -1 : 1;
   }
   return depth;
@@ -436,13 +488,48 @@ export function createRenderer(libs) {
   const trust = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) =>
     b.toString(16).padStart(2, '0'),
   ).join('');
-  const md = configure(libs, trust);
-  const state = { path: '', base: 0, lineCount: 0 };
+  const md = configure(libs);
+  const state = { path: '', base: 0, lineCount: 0, stamps: new Map() };
   const purify = makeSanitizer(libs.DOMPurify, trust, state);
 
-  // Source -> segments, each with HTML whose line attributes are relative to the
-  // segment's first line. Equal HTML means an unchanged rendering wherever the
-  // segment moved, so `html` doubles as the reuse key.
+  // Stamps the elements of one segment; numbering restarts per segment so a
+  // segment's HTML does not change when other segments do.
+  function stampSegment(slice, base) {
+    const stamps = new Map();
+    const record = (rec) => {
+      const key = String(stamps.size);
+      stamps.set(key, rec);
+      return `${trust}:${key}`;
+    };
+    for (const t of slice) {
+      for (const child of t.children ?? []) {
+        if (child.type !== 'math_inline') continue;
+        child.meta.stamp = record({ tag: 'span', control: { 'data-mp-kind': 'math' }, names: new Set(['class']) });
+      }
+      if (!t.map || t.type === 'inline' || t.type === 'html_block') continue;
+      if (!(t.nesting === 1 || (t.nesting === 0 && t.block))) continue;
+      const emitted = emittedBy(md, t);
+      const control = {
+        ...emitted.control,
+        'data-line-start': String(t.map[0] - base),
+        // markdown-it's map is [start, end); data-line-end is inclusive.
+        'data-line-end': String(Math.max(t.map[0], t.map[1] - 1) - base),
+      };
+      for (const name of ['data-mp-trust', 'data-line-start', 'data-line-end']) {
+        const at = t.attrIndex(name);
+        if (at >= 0) t.attrs.splice(at, 1);
+      }
+      const names = new Set([...(t.attrs ?? []).map(([name]) => name), ...(emitted.names ?? [])]);
+      t.attrSet('data-mp-trust', record({ tag: emitted.tag, control, names }));
+      t.attrSet('data-line-start', control['data-line-start']);
+      t.attrSet('data-line-end', control['data-line-end']);
+    }
+    return stamps;
+  }
+
+  // Source -> segments, each with HTML whose line attributes and stamps are
+  // relative to the segment. Equal HTML means an unchanged rendering wherever
+  // the segment moved, so `html` doubles as the reuse key.
   function segments(source, { path }) {
     state.path = path;
     const env = {};
@@ -451,21 +538,16 @@ export function createRenderer(libs) {
     for (const { from, to } of splitSegments(tokens)) {
       const slice = tokens.slice(from, to);
       const base = slice.find((t) => t.map)?.map[0] ?? 0;
-      for (const t of slice) {
-        if (!t.map || t.type === 'inline' || t.type === 'html_block') continue;
-        if (!(t.nesting === 1 || (t.nesting === 0 && t.block))) continue;
-        t.attrSet('data-mp-trust', trust);
-        t.attrSet('data-line-start', String(t.map[0] - base));
-        // markdown-it's map is [start, end); data-line-end is inclusive.
-        t.attrSet('data-line-end', String(Math.max(t.map[0], t.map[1] - 1) - base));
-      }
-      out.push({ html: md.renderer.render(slice, md.options, env), base });
+      const stamps = stampSegment(slice, base);
+      out.push({ html: md.renderer.render(slice, md.options, env), base, stamps });
     }
     return out;
   }
 
-  function sanitize(html, { path, base, lineCount, detailsOpen }) {
-    Object.assign(state, { path, base, lineCount });
+  function sanitize(html, { path, base, lineCount, detailsOpen, stamps }) {
+    // Fresh copies: a stamp is honoured at most once per sanitize.
+    const fresh = new Map([...stamps].map(([key, rec]) => [key, { ...rec, used: false }]));
+    Object.assign(state, { path, base, lineCount, stamps: fresh });
     const fragment = purify.sanitize(html, PURIFY_CONFIG);
     // Built after sanitizing, so these elements are not on the allowlist.
     for (const link of fragment.querySelectorAll('a[data-mp-video]')) {
@@ -486,7 +568,7 @@ export function createRenderer(libs) {
       const lineCount = source.split('\n').length;
       const fragment = document.createDocumentFragment();
       for (const seg of segments(source, { path })) {
-        fragment.append(sanitize(seg.html, { path, base: seg.base, lineCount, detailsOpen }));
+        fragment.append(sanitize(seg.html, { path, base: seg.base, lineCount, detailsOpen, stamps: seg.stamps }));
       }
       return fragment;
     },

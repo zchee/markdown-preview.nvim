@@ -178,6 +178,36 @@ CHECKS: dict[str, str] = {
         "(() => { const p = qa('p').find(p => p.textContent.startsWith('A scaled formula')); const box = p?.querySelector('mjx-container')?.getBoundingClientRect(); "
         "return [!!box && box.width < 200 && box.height < 200, box ? Math.round(box.width) + 'x' + Math.round(box.height) : 'missing'] })()"
     ),
+    "absorbed stamps grant no control attributes or decoration": (
+        "(() => { const ids = ['absorb1', 'absorb2', 'leak1', 'absorb4b']; const out = []; "
+        "for (const id of ids) { const el = document.getElementById('user-content-' + id); if (!el) continue; "
+        "const ctl = [...el.attributes].filter(a => a.name.startsWith('data-mp-') || a.name.startsWith('data-line-')).map(a => a.name); "
+        "if (ctl.length || el.querySelector('svg, mjx-container')) out.push(id + ': ' + ctl.join(' ') + (el.querySelector('svg, mjx-container') ? ' decorated' : '')); } "
+        "const li = qa('li').find(li => li.textContent.includes('x_1 * y_2')); "
+        "if (li && [...li.querySelectorAll('*')].concat(li).some(e => [...e.attributes].some(a => /^data-mp-(lang|media|unavailable|kind)$/.test(a.name)))) out.push('list item keeps forged data-mp-*'); "
+        "return [out.length === 0 && ids.some(id => document.getElementById('user-content-' + id)), out.join('; ') || 'present: ' + ids.filter(id => document.getElementById('user-content-' + id)).join(',')] })()"
+    ),
+    "no attribute or text holds a stamp": (
+        "(() => { const stamp = /[0-9a-f]{24}(:\\d+)?/; const attrs = [...document.querySelectorAll('*')].flatMap(e => [...e.attributes].filter(a => a.value.includes('data-mp-trust') || (a.name !== 'd' && stamp.test(a.value) && !/^(id|xlink:href|href|aria-labelledby|data-c)$/.test(a.name))).map(a => e.tagName + '@' + a.name + '=' + a.value.slice(0, 40))); "
+        "const text = B.textContent.includes('data-mp-trust'); "
+        "return [attrs.length === 0 && !text, attrs.slice(0, 4).join(' | ') + (text ? ' text' : '')] })()"
+    ),
+    "MathJax \\data cannot set control attributes": (
+        "(() => { const p = qa('p').find(p => p.textContent.startsWith('Math data attributes')); "
+        "const bad = p ? [...p.querySelectorAll('mjx-container *')].flatMap(e => [...e.attributes].filter(a => a.name.startsWith('data-mp-') || a.name.startsWith('data-line-')).map(a => a.name)) : ['missing']; "
+        "return [!!p?.querySelector('mjx-container') && bad.length === 0 && !qa('mjx-container [data-mp-kind], mjx-container svg svg[aria-roledescription]').length, bad.join(' ')] })()"
+    ),
+    "encoded and backslash path escapes emit no URL": (
+        "(() => { const out = []; "
+        "for (const a of qa('a')) if (['Encoded escape', 'backslash escape'].includes(a.textContent) && a.hasAttribute('href')) out.push(a.textContent + ' href=' + a.getAttribute('href')); "
+        "for (const alt of ['enc-img-short', 'enc-img', 'enc-srcset']) { const img = q(`img[alt=${alt}]`); if (!img) out.push(alt + ' missing'); else if (img.getAttribute('src') || img.getAttribute('srcset')) out.push(alt + ' src=' + (img.getAttribute('src') ?? img.getAttribute('srcset'))); } "
+        "const urls = qa('[href], [src], [srcset]').flatMap(e => ['href', 'src', 'srcset'].map(n => e.getAttribute(n)).filter(Boolean)).filter(u => !/^[a-z][a-z+.-]*:|^#|^\\/\\//i.test(u)); "
+        "for (const u of urls) if (!u.startsWith('file/') || /(^|\\/)\\.\\.?(\\/|$)|%2f|%5c|\\\\/i.test(u)) out.push('bad relative URL ' + u); "
+        "const stream = new URL('events', location.href).pathname; "
+        "const events = performance.getEntriesByType('resource').filter(r => r.initiatorType === 'img' && new URL(r.name).pathname === stream); "
+        "if (events.length) out.push('image request to events'); "
+        "return [out.length === 0, out.join('; ')] })()"
+    ),
     "no attribute carries the page origin or token": (
         "(() => { const token = location.pathname.split('/')[1]; const needles = [location.origin, location.host]; "
         "if (/^[0-9a-f]{32}$/.test(token)) needles.push(token); "

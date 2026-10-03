@@ -101,6 +101,8 @@ export function createSync({ scroller, content, band }) {
         if (!Number.isFinite(end)) end = start;
         else if (end < start || end >= lineCount) continue;
       }
+      // Library output (MathJax, mermaid) can carry author-chosen attributes.
+      if (el.parentElement?.closest("[data-mp-kind], svg, mjx-container")) continue;
       // Children of a closed <details> are laid out with zero size at the top of the
       // details element; their lines must interpolate across the visible summary instead.
       if (!el.checkVisibility()) continue;

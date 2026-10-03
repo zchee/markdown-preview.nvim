@@ -5,6 +5,7 @@
 // grammars are fetched one scope at a time.
 
 import { VERSIONS, cdnUrl, importFrom } from './libs.js';
+import { ownBlocks } from './scope.js';
 
 // starry-night's `common` set.
 const COMMON = [
@@ -141,7 +142,7 @@ function toDom(node) {
 const yieldToBrowser = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 export async function highlightCode(root, cdn) {
-  const pending = [...root.querySelectorAll('[data-mp-kind=code][data-mp-lang]')].filter(
+  const pending = ownBlocks(root, '[data-mp-kind=code][data-mp-lang]').filter(
     (block) => !highlightSource.has(block),
   );
   if (!pending.length) return 0;

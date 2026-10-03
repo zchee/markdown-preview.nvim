@@ -343,3 +343,35 @@ Math commands that reach outside the formula: $\href{https://example.com}{x}$ an
 
 A scaled formula: $\style{transform:scale(300);transform-origin:center;fill:red;}{\rule{1em}{1em}}$
 
+## Stamp absorption probes
+
+> <div id="absorb1" data-mp-kind="mermaid"
+>
+> graph TD; A-->B
+
+- <div id="absorb2" data-mp-kind="math" data-mp-lang="js" data-mp-media="(prefers-color-scheme: dark)" data-mp-unavailable
+
+  x_1 * y_2
+
+> <div id="leak1" title='
+>
+> swallowed paragraph, it's here
+
+<details id="absorb4">
+<summary>Merged details</summary>
+
+<div id="absorb4b" data-mp-kind="math"
+
+x_1 * y_2
+
+</details>
+
+Math data attributes: $\data{mp-kind=mermaid,line-start=0}{x}$
+
+## Encoded path probes
+
+[Encoded escape](a%2F..%2F..%2F..%2F..%2F..%2Fx.md) and <a href="..\..\..\..\x.md" id="bs-escape">backslash escape</a>
+
+<img src="a%2F..%2F..%2Fevents" alt="enc-img-short">
+<img src="a%2F..%2F..%2F..%2F..%2F..%2Fevents" alt="enc-img">
+<img srcset="a%2F..%2F..%2F..%2F..%2F..%2Fevents 1x" alt="enc-srcset">

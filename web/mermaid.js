@@ -1,4 +1,5 @@
 import { VERSIONS, cdnUrl, importFrom } from './libs.js';
+import { ownBlocks } from './scope.js';
 
 export const mermaidSource = new WeakMap();
 export const mermaidKey = (el) => el.textContent;
@@ -25,7 +26,7 @@ function restoreSource(el) {
 }
 
 export async function renderMermaid(root, cdn, dark) {
-  const blocks = [...root.querySelectorAll('[data-mp-kind=mermaid]')];
+  const blocks = ownBlocks(root, '[data-mp-kind=mermaid]');
   if (!blocks.length) return 0;
   const mermaid = await loadMermaid(cdn);
   const theme = dark ? 'dark' : 'default';

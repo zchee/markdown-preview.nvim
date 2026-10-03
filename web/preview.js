@@ -180,6 +180,7 @@ export class Preview {
       const fragment = this.renderer.sanitize(seg.html, {
         path: this.path,
         base: seg.base,
+        stamps: seg.stamps,
         lineCount,
         detailsOpen: this.config.details_tags_open,
       });

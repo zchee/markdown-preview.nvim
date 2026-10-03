@@ -4,6 +4,7 @@
 // so MathJax never scans the page for delimiters.
 
 import { VERSIONS, cdnUrl, loadClassicScript } from './libs.js';
+import { ownBlocks } from './scope.js';
 
 const DOLLAR = 0x24;
 const BACKTICK = 0x60;
@@ -122,18 +123,34 @@ function blockMath(state, startLine, endLine, silent) {
   return true;
 }
 
-// `trust` is the renderer's nonce that lets the sanitizer keep data-mp-kind.
-export function mathPlugin(md, trust) {
+export function mathPlugin(md) {
   md.inline.ruler.before('escape', 'math_inline', inlineMath);
   md.block.ruler.before('fence', 'math_block', blockMath, { alt: [] });
   const esc = md.utils.escapeHtml;
   md.renderer.rules.math_inline = (tokens, idx) => {
     const { content, meta } = tokens[idx];
     const display = meta.display ? ' class="mp-math-display"' : '';
-    return `<span data-mp-trust="${trust}" data-mp-kind="math"${display}>${esc(content)}</span>`;
+    // `meta.stamp` is set by the renderer so the sanitizer keeps data-mp-kind.
+    const stamp = meta.stamp ? ` data-mp-trust="${meta.stamp}"` : '';
+    return `<span${stamp} data-mp-kind="math"${display}>${esc(content)}</span>`;
   };
   md.renderer.rules.math_block = (tokens, idx, options, env, self) =>
     `<div${self.renderAttrs(tokens[idx])} data-mp-kind="math" class="mp-math-display">${esc(tokens[idx].content)}</div>\n`;
+}
+
+// ui/safe does not filter TeX's \data{name=value} (its TeX filter matches
+// attribute names exactly; the data- prefix rule exists only for MathML input),
+// so authored data-* attributes are removed here. MathJax's own data-*
+// attributes stay: its stylesheet selects on several of them (merror
+// backgrounds, table lines and frames).
+const MATHJAX_DATA = /^data-(mjx|sre|semantic)-|^data-(mml-node|c|latex|background|line|table|frame|toggle|bgcolor|look|variant|hitbox)$/;
+
+function dropAuthoredData(root) {
+  for (const el of [root, ...root.querySelectorAll('*')]) {
+    for (const { name } of [...el.attributes]) {
+      if (name.startsWith('data-') && !MATHJAX_DATA.test(name)) el.removeAttribute(name);
+    }
+  }
 }
 
 let mathjaxReady;
@@ -181,7 +198,7 @@ export const mathKey = (el) =>
   `${el.classList.contains('mp-math-display') ? 'D' : 'I'}${el.textContent}`;
 
 export async function typesetMath(root, cdn) {
-  const pending = [...root.querySelectorAll('[data-mp-kind=math]')].filter((el) => !mathSource.has(el));
+  const pending = ownBlocks(root, '[data-mp-kind=math]').filter((el) => !mathSource.has(el));
   if (!pending.length) return 0;
   const MathJax = await loadMathJax(cdn);
   for (const el of pending) {
@@ -191,6 +208,7 @@ export async function typesetMath(root, cdn) {
     try {
       const node = await MathJax.tex2svgPromise(tex, { display: key[0] === 'D' });
       if (!el.isConnected || mathKey(el) !== key) continue;
+      dropAuthoredData(node);
       el.replaceChildren(node);
       el.title = tex;
     } catch (err) {
