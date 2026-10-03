@@ -22,10 +22,12 @@ import argparse
 import asyncio
 import functools
 import logging
+import subprocess
 import sys
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tests" / "browser"))
@@ -296,6 +298,66 @@ def checks_script(checks: dict[str, str], doc_dir: str) -> str:
     )
 
 
+def nvim_lua(server: str, code: str) -> None:
+    """Run Lua in the nvim that hosts the preview server, through its --listen socket."""
+    # luaeval takes an expression, so the statements run inside a function literal.
+    expr = f"luaeval({orjson.dumps(f'(function() {code} return 1 end)()').decode()})"
+    subprocess.run(["nvim", "--server", server, "--remote-expr", expr], check=True, capture_output=True, timeout=10)
+
+
+# Each step changes the editor-side config through the plugin's Lua API, which
+# broadcasts update_config over the event stream, then waits for the page to
+# reflect it. The theme has no public setter; it is set on config.options and
+# broadcast by the next public toggle.
+SSE_CONFIG_STEPS: list[tuple[str, str, str]] = [
+    (
+        "update_config over SSE: details_tags_off closes <details>",
+        'require("markdown-preview").details_tags_off()',
+        "[...document.querySelectorAll('#mp-body details:not(.mp-video)')].every(d => !d.open)",
+    ),
+    (
+        "update_config over SSE: dark high-contrast theme applied",
+        'local c = require("markdown-preview.config").options; c.theme.name = "dark"; c.theme.high_contrast = true; '
+        'require("markdown-preview").details_tags_on()',
+        "document.documentElement.dataset.mpTheme === 'dark' && document.documentElement.dataset.mpContrast === 'high' && "
+        "document.getElementById('mp-markdown-css').getAttribute('href').endsWith('github-markdown-dark-high-contrast.css') && "
+        "[...document.querySelectorAll('#mp-body details:not(.mp-video)')].every(d => d.open) && "
+        "document.querySelector('[data-mp-kind=mermaid] svg') !== null",
+    ),
+    (
+        "update_config over SSE: light theme applied",
+        'local c = require("markdown-preview.config").options; c.theme.name = "light"; c.theme.high_contrast = false; '
+        'require("markdown-preview").scroll_on()',
+        "document.documentElement.dataset.mpTheme === 'light' && "
+        "document.getElementById('mp-markdown-css').getAttribute('href').endsWith('github-markdown-light.css')",
+    ),
+    (
+        "update_config over SSE: cursorline_off hides the band",
+        'require("markdown-preview").cursorline_off()',
+        "getComputedStyle(document.getElementById('mp-cursor')).display === 'none'",
+    ),
+    (
+        "update_config over SSE: cursorline_on shows the band again",
+        'local c = require("markdown-preview.config").options; c.theme.name = "system"; '
+        'require("markdown-preview").cursorline_on()',
+        "getComputedStyle(document.getElementById('mp-cursor')).display === 'block'",
+    ),
+]
+
+
+async def run_sse_config_steps(page: Any, server: str) -> dict[str, list]:
+    """Drive SSE_CONFIG_STEPS against the running nvim and the open page."""
+    results: dict[str, list] = {}
+    for name, lua, done in SSE_CONFIG_STEPS:
+        try:
+            nvim_lua(server, lua)
+            await page.wait_for(f"({done})", 15)
+            results[name] = [True, ""]
+        except (subprocess.SubprocessError, TimeoutError) as err:
+            results[name] = [False, str(err)[:200]]
+    return results
+
+
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         logger.debug(format, *args)
@@ -309,7 +371,7 @@ def serve_repo() -> tuple[ThreadingHTTPServer, int]:
     return server, server.server_address[1]
 
 
-async def run_checks(url: str, timeout: float, width: int, doc_dir: str) -> int:
+async def run_checks(url: str, timeout: float, width: int, doc_dir: str, nvim: str | None) -> int:
     """Open `url`, wait for the full render, run CHECKS and report; return the exit code."""
     async with Chrome(width=width, mobile=width < 768) as chrome:
         page = await chrome.open(url)
@@ -323,6 +385,8 @@ async def run_checks(url: str, timeout: float, width: int, doc_dir: str) -> int:
         if await page.eval("window.__mp !== undefined"):
             results |= await page.eval(checks_script(RERENDER_CHECKS, doc_dir))
         else:
+            if nvim:
+                results |= await run_sse_config_steps(page, nvim)
             results |= await page.eval(checks_script(SERVER_CHECKS, doc_dir))
         for name, (ok, detail) in results.items():
             mark = "ok  " if ok else "FAIL"
@@ -383,6 +447,12 @@ def main() -> int:
         help="directory of the fixture relative to the preview root, with a trailing slash "
         "(default: '' for the harness, 'tests/fixtures/' with --url)",
     )
+    parser.add_argument(
+        "--nvim",
+        metavar="SOCKET",
+        help="--listen address of the nvim running the preview server; with --url, also checks "
+        "update_config over the event stream by driving the plugin's Lua API",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING)
@@ -393,7 +463,7 @@ def main() -> int:
         url = f"http://127.0.0.1:{port}/tests/browser/render/index.html?fixture=github-features.md&theme=light"
     try:
         doc_dir = args.doc_dir if args.doc_dir is not None else ("" if args.url is None else "tests/fixtures/")
-        return asyncio.run(run_checks(url, args.timeout, args.width, doc_dir))
+        return asyncio.run(run_checks(url, args.timeout, args.width, doc_dir, args.nvim))
     finally:
         if server:
             server.shutdown()
