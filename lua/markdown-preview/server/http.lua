@@ -8,6 +8,8 @@ M.MAX_BODY_BYTES = 16 * 1024
 M.MAX_CONNECTIONS = 64
 -- A connection that has not sent a complete request by then is closed.
 M.REQUEST_TIMEOUT_MS = 10000
+-- A final write to a peer that stopped reading is abandoned after this long.
+M.FINISH_TIMEOUT_MS = 2000
 
 local status_text = {
   [200] = "OK",
@@ -208,7 +210,7 @@ end
 ---@field finishing boolean True while a graceful shutdown is flushing pending writes.
 ---@field handled boolean True once a complete request was handed to the handler.
 ---@field on_eof? fun(conn: markdown_preview.Conn) Called when the peer closes after the request.
----@field deadline? uv.uv_timer_t Closes the connection if no complete request arrives in time.
+---@field deadline? uv.uv_timer_t Closes the connection when the request, or the final flush, takes too long.
 local Conn = {}
 Conn.__index = Conn
 
@@ -252,6 +254,15 @@ function Conn:finish()
   end)
   if not ok then
     self:destroy()
+    return
+  end
+  self:clear_deadline()
+  local timer = uv.new_timer()
+  if timer then
+    self.deadline = timer
+    timer:start(M.FINISH_TIMEOUT_MS, 0, function()
+      self:destroy()
+    end)
   end
 end
 
@@ -404,6 +415,11 @@ local function accept(server, tcp, handler, precheck)
     if err or chunk == nil then
       if conn.on_eof then
         conn.on_eof(conn)
+      elseif conn.handled and not err then
+        -- The peer half-closed after sending its request; the response may still be streaming
+        -- (asynchronous file reads). Write errors and finish() end the connection.
+        conn.tcp:read_stop()
+        return
       end
       conn:destroy()
       return

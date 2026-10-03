@@ -47,7 +47,9 @@ local function check_cdn()
     vim.health.warn("curl not found; CDN reachability not checked (" .. cdn .. ")")
     return
   end
-  local url = cdn:gsub("/+$", "") .. "/markdown-it@15.0.2/package.json"
+  -- Any package the page loads will do; an unversioned path keeps this probe free of a second
+  -- copy of the version pins that live in web/.
+  local url = cdn:gsub("/+$", "") .. "/markdown-it/package.json"
   local done = vim
     .system({
       "curl",

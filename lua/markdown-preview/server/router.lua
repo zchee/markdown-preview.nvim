@@ -19,14 +19,16 @@ local bootstrap_placeholder = "__MP_BOOTSTRAP__"
 -- repository). Sandboxing them keeps their scripts out of the page's origin, which holds the token.
 local file_csp = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
 
+--- `host` as it appears in a URL authority: IPv6 literals are bracketed.
 ---@param host string
 ---@return string
-local function host_literal(host)
+function M.host_literal(host)
   if host:find(":", 1, true) and not host:match("^%[") then
     return "[" .. host .. "]"
   end
   return host
 end
+local host_literal = M.host_literal
 
 --- Host header values accepted for a server on `port`: the loopback names, the configured host
 --- and the literal address it was resolved to.
@@ -90,7 +92,7 @@ local function serve_index(ctx, conn, req)
   html = html:gsub(bootstrap_placeholder, function()
     return json
   end)
-  local origin = ctx.cdn:match("^(https?://[^/]+)")
+  local origin = require("markdown-preview.config").cdn_origin(ctx.cdn)
   conn:respond(200, {
     ["Content-Type"] = "text/html; charset=utf-8",
     ["Content-Security-Policy"] = M.csp(origin, req.headers["host"]:lower(), ctx.token),

@@ -9,7 +9,9 @@ M.MAX_QUEUE_BYTES = 4 * 1024 * 1024
 
 ---@class markdown_preview.SSE
 ---@field clients table<markdown_preview.Conn, true>
----@field timer? uv.uv_timer_t
+---@field timer? uv.uv_timer_t Ping timer; runs only while at least one client is connected.
+---@field interval integer
+---@field closed boolean
 local SSE = {}
 SSE.__index = SSE
 
@@ -21,18 +23,32 @@ function M.format(event, data)
   return "event: " .. event .. "\ndata: " .. vim.json.encode(data) .. "\n\n"
 end
 
---- Creates a client registry with a keep-alive ping every `ping_ms` milliseconds.
+--- Creates a client registry with a keep-alive ping every `ping_ms` milliseconds while any
+--- client is connected.
 ---@param ping_ms? integer
 ---@return markdown_preview.SSE
 function M.new(ping_ms)
-  local self = setmetatable({ clients = {} }, SSE)
-  local timer = assert(uv.new_timer())
-  local interval = ping_ms or M.PING_INTERVAL_MS
-  timer:start(interval, interval, function()
-    self:send_raw(": ping\n\n")
-  end)
-  self.timer = timer
-  return self
+  return setmetatable({ clients = {}, interval = ping_ms or M.PING_INTERVAL_MS, closed = false }, SSE)
+end
+
+function SSE:start_ping()
+  if self.closed then
+    return
+  end
+  if not self.timer then
+    self.timer = assert(uv.new_timer())
+  end
+  if not self.timer:is_active() then
+    self.timer:start(self.interval, self.interval, function()
+      self:send_raw(": ping\n\n")
+    end)
+  end
+end
+
+function SSE:stop_ping_if_idle()
+  if next(self.clients) == nil and self.timer and not self.timer:is_closing() then
+    self.timer:stop()
+  end
 end
 
 ---@param conn markdown_preview.Conn
@@ -40,6 +56,7 @@ function SSE:remove(conn)
   if self.clients[conn] then
     self.clients[conn] = nil
     conn:destroy()
+    self:stop_ping_if_idle()
   end
 end
 
@@ -56,7 +73,9 @@ function SSE:add(conn, first)
   self.clients[conn] = true
   conn.on_eof = function(c)
     self.clients[c] = nil
+    self:stop_ping_if_idle()
   end
+  self:start_ping()
   conn:write_head(200, {
     ["Content-Type"] = "text/event-stream; charset=utf-8",
     ["Connection"] = "keep-alive",
@@ -107,6 +126,7 @@ function SSE:close()
     conn:finish()
   end
   self.clients = {}
+  self.closed = true
   if self.timer and not self.timer:is_closing() then
     self.timer:stop()
     self.timer:close()

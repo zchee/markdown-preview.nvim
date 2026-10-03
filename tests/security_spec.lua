@@ -923,11 +923,18 @@ describe("slow and broken clients", function()
     ctx,
     "answers: complete request followed by half-close (assumed: FIN after a request is not an abort)",
     function()
-      expect_status(
-        exchange(ctx.port, get_index, { half_close = true }).raw,
-        200,
-        "half-close after a complete request"
-      )
+      -- assets/ and file/ stream through asynchronous file reads, so the response is still being
+      -- written when the FIN arrives; the index is answered synchronously.
+      for _, target in ipairs({ "/{token}/", "/{token}/assets/app.js", "/{token}/file/media/pic.png" }) do
+        local path = expand(target, ctx)
+        local raw = exchange(ctx.port, h.request(ctx.port, "GET", path), { half_close = true }).raw
+        expect_status(raw, 200, "half-close after a complete request for " .. path)
+        local res = h.parse(raw)
+        check(
+          tonumber(res.headers["content-length"]) == #res.body,
+          "truncated body after half-close for " .. path .. ": " .. #res.body .. " bytes"
+        )
+      end
     end
   )
 

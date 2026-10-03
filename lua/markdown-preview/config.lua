@@ -204,12 +204,12 @@ function M.browser_view(o)
   }
 end
 
---- Origin (scheme://host[:port]) of the configured CDN.
----@param o? markdown_preview.Config
+--- Origin (scheme://host[:port]) of a CDN base URL, by default the configured one.
+---@param cdn? string
 ---@return string
-function M.cdn_origin(o)
-  o = o or M.options
-  return (o.cdn:match("^(https?://[^/]+)"))
+function M.cdn_origin(cdn)
+  cdn = cdn or M.options.cdn
+  return (cdn:match("^(https?://[^/]+)"))
 end
 
 return M

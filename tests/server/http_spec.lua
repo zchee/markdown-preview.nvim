@@ -262,3 +262,67 @@ describe("http server", function()
     assert.is_true(closed)
   end)
 end)
+
+describe("half-closed clients", function()
+  local t, s, port
+
+  before_each(function()
+    t = h.tree()
+    s = h.start(t.readme, t.web)
+    port = s.server.port
+  end)
+
+  after_each(function()
+    h.stop()
+    h.cleanup(t)
+  end)
+
+  ---@param target string
+  ---@return string raw
+  local function get_then_half_close(target)
+    local tcp = assert(vim.uv.new_tcp())
+    local out, done = {}, false
+    tcp:connect("127.0.0.1", port, function(err)
+      assert(not err, err)
+      tcp:read_start(function(rerr, data)
+        if rerr or not data then
+          done = true
+          return
+        end
+        out[#out + 1] = data
+      end)
+      tcp:write(h.request(port, "GET", target), function()
+        -- FIN right after the request, as `curl` or a proxy may do; reading continues.
+        tcp:shutdown()
+      end)
+    end)
+    vim.wait(h.TIMEOUT_MS, function()
+      return done
+    end, 5)
+    tcp:close()
+    return table.concat(out)
+  end
+
+  it("still receives an asynchronously streamed response after sending FIN", function()
+    local parts = {}
+    for i = 1, 30000 do
+      parts[i] = string.format("/* %06d */\n", i)
+    end
+    local content = table.concat(parts)
+    h.write_file(vim.fs.joinpath(t.web, "big.css"), content)
+    h.write_file(vim.fs.joinpath(t.repo, "media", "big.mp4"), content)
+    for _, target in ipairs({ "assets/big.css", "file/media/big.mp4", "file/media/pic.png", "" }) do
+      local res = h.parse(get_then_half_close("/" .. s.token .. "/" .. target))
+      assert.are.equal(200, res.status, target .. "\n" .. res.raw:sub(1, 300))
+      assert.are.equal(tonumber(res.headers["content-length"]), #res.body, target .. ": truncated body")
+    end
+    local res = h.parse(get_then_half_close("/" .. s.token .. "/assets/big.css"))
+    assert.is_true(res.body == content, "body differs from the file")
+    assert.is_true(
+      vim.wait(h.TIMEOUT_MS, function()
+        return s.server:connection_count() == 0
+      end, 5),
+      "half-closed connections left open after their responses"
+    )
+  end)
+end)
