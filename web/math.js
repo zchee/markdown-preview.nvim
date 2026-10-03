@@ -186,7 +186,11 @@ function loadMathJax(cdn) {
     await window.MathJax.startup.promise;
     document.head.append(window.MathJax.svgStylesheet());
     return window.MathJax;
-  })();
+  })().catch((err) => {
+    // A failed load is not kept, so the next render tries again.
+    mathjaxReady = undefined;
+    throw err;
+  });
   return mathjaxReady;
 }
 

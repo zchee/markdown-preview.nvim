@@ -22,12 +22,15 @@ function isDocumentScroller(el) {
   return el === document.scrollingElement || el === document.documentElement || el === document.body;
 }
 
-function mergeConfig(config) {
-  const c = config || {};
-  return {
-    cursor_line: { ...DEFAULT_CONFIG.cursor_line, ...(c.cursor_line || {}) },
-    scroll: { ...DEFAULT_CONFIG.scroll, ...(c.scroll || {}) },
-  };
+// `base` with the keys of `patch` laid over it; object values are merged one
+// level deep, so a partial `{ scroll: { disable: true } }` keeps the other
+// scroll settings.
+export function mergeConfig(base, patch) {
+  const out = structuredClone(base);
+  for (const [key, value] of Object.entries(patch ?? {})) {
+    out[key] = value && typeof value === "object" && !Array.isArray(value) ? { ...out[key], ...value } : value;
+  }
+  return out;
 }
 
 /**
@@ -39,7 +42,7 @@ function mergeConfig(config) {
  * to rebuild(), or whose end precedes their start, are ignored.
  */
 export function createSync({ scroller, content, band }) {
-  let config = mergeConfig(null);
+  let config = mergeConfig(DEFAULT_CONFIG, null);
   // offsets[line] is the line's top in scroller scroll coordinates; heights[line] is the
   // distance to the next line, measured to the bottom of the line's own block.
   let offsets = new Float64Array(0);
@@ -214,7 +217,7 @@ export function createSync({ scroller, content, band }) {
   }
 
   function setConfig(next) {
-    config = mergeConfig(next);
+    config = mergeConfig(DEFAULT_CONFIG, next);
     applyBandStyle();
     apply();
   }

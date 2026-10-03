@@ -5,7 +5,7 @@
 
 import { VERSIONS, cdnUrl, loadStylesheet } from './libs.js';
 import { createRenderer } from './render.js';
-import { createSync } from './sync.js';
+import { createSync, mergeConfig } from './sync.js';
 import { highlightCode, highlightSource, codeKey } from './highlight.js';
 import { typesetMath, mathSource, mathKey } from './math.js';
 import { renderMermaid, mermaidSource, mermaidKey } from './mermaid.js';
@@ -56,16 +56,9 @@ function shiftLines(seg, base) {
 }
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
 
-function mergeConfig(base, patch) {
-  const out = structuredClone(base);
-  for (const [key, value] of Object.entries(patch ?? {})) {
-    out[key] = value && typeof value === 'object' && !Array.isArray(value)
-      ? { ...out[key], ...value }
-      : value;
-  }
-  return out;
-}
-
+// `onError(key, error)` reports a failure under `key` ('render', 'highlight',
+// 'math', 'mermaid', 'theme'); `onError(key, null)` withdraws it after that
+// part succeeds again.
 export class Preview {
   constructor({ root, band, libs, cdn, config, onOpen, onError }) {
     this.root = root;
@@ -73,7 +66,7 @@ export class Preview {
     this.Idiomorph = libs.Idiomorph;
     this.renderer = createRenderer(libs);
     this.onOpen = onOpen;
-    this.onError = onError;
+    this.onError = (key, err) => onError?.(key, err);
     this.config = mergeConfig(DEFAULT_CONFIG, config);
     this.path = '';
     this.source = '';
@@ -130,26 +123,59 @@ export class Preview {
     this.sync.setCursor(line);
   }
 
+  // details_tags_open = true opens every authored <details>; false shows each
+  // the way the author wrote it (its `open` attribute). Video players stay
+  // open either way. Changing the setting re-renders from scratch, so a toggle
+  // and a fresh render under the same setting look the same.
   setConfig(config) {
     const previous = this.config;
     this.config = mergeConfig(DEFAULT_CONFIG, config);
-    if (this.config.details_tags_open !== previous.details_tags_open) {
-      for (const details of this.root.querySelectorAll('details')) {
-        details.open = this.config.details_tags_open;
-      }
-    }
     this.sync.setConfig(this.config);
     this.applyTheme();
+    if (this.config.details_tags_open !== previous.details_tags_open && this.segmentsPath !== null) {
+      this.segmentsPath = null;
+      this.render();
+    }
+  }
+
+  // A render that throws leaves the bookkeeping out of step with a partly
+  // patched page, so the page is cleared and rendered once more from scratch;
+  // if that fails too, the source is shown as plain text. The error stays on
+  // screen until a render succeeds at the first attempt.
+  render() {
+    const started = performance.now();
+    const generation = ++this.generation;
+    document.documentElement.dataset.mpRender = 'pending';
+    try {
+      this.renderSegments();
+      this.onError('render', null);
+    } catch (err) {
+      this.onError('render', err);
+      this.segments = [];
+      this.segmentsPath = null;
+      this.root.replaceChildren();
+      try {
+        this.renderSegments();
+      } catch {
+        this.segments = [];
+        this.segmentsPath = null;
+        const pre = document.createElement('pre');
+        pre.textContent = this.source;
+        this.root.replaceChildren(pre);
+        document.documentElement.dataset.mpRender = 'failed';
+        return;
+      }
+    }
+    this.stats.paintMs = performance.now() - started;
+    document.documentElement.dataset.mpRender = 'painted';
+    this.decorate(generation, started);
   }
 
   // Only segments whose rendered HTML changed are sanitized and patched into
   // the page; the unchanged ones before and after them keep their nodes (and
   // so their highlighting, math, diagrams and <details> state) and only get
   // their line attributes moved when lines were inserted or removed above.
-  render() {
-    const started = performance.now();
-    const generation = ++this.generation;
-    document.documentElement.dataset.mpRender = 'pending';
+  renderSegments() {
     let lineCount = 1;
     for (let at = this.source.indexOf('\n'); at !== -1; at = this.source.indexOf('\n', at + 1)) lineCount++;
     const next = this.renderer.segments(this.source, { path: this.path });
@@ -202,13 +228,7 @@ export class Preview {
     }
     this.segments = next;
     this.sync.rebuild(lineCount);
-    this.stats = {
-      paintMs: performance.now() - started,
-      segments: next.length,
-      rerendered: newMid.length,
-    };
-    document.documentElement.dataset.mpRender = 'painted';
-    this.decorate(generation, started);
+    this.stats = { segments: next.length, rerendered: newMid.length };
   }
 
   // Replaces one changed segment in place. A segment that is a single element
@@ -234,15 +254,16 @@ export class Preview {
   async decorate(generation, started) {
     const dark = document.documentElement.dataset.mpTheme === 'dark';
     const jobs = [
-      highlightCode(this.root, this.cdn),
-      typesetMath(this.root, this.cdn),
-      renderMermaid(this.root, this.cdn, dark),
-    ].map((job) =>
+      ['highlight', highlightCode(this.root, this.cdn)],
+      ['math', typesetMath(this.root, this.cdn)],
+      ['mermaid', renderMermaid(this.root, this.cdn, dark)],
+    ].map(([key, job]) =>
       job.then(
         (count) => {
+          this.onError(key, null);
           if (count) this.sync.rebuild();
         },
-        (err) => this.onError?.(err),
+        (err) => this.onError(key, err),
       ),
     );
     await Promise.all(jobs);
@@ -277,12 +298,21 @@ export class Preview {
       delete this.root.dataset.colorMode;
       delete this.root.dataset.lightTheme;
     }
-    Promise.all(sheets).then(() => this.sync.rebuild(), (err) => this.onError?.(err));
+    Promise.all(sheets).then(
+      () => {
+        this.onError('theme', null);
+        this.sync.rebuild();
+      },
+      (err) => this.onError('theme', err),
+    );
     this.applyPictureTheme(this.root);
     if (changed && this.root.querySelector('[data-mp-kind=mermaid]')) {
       renderMermaid(this.root, this.cdn, theme === 'dark').then(
-        () => this.sync.rebuild(),
-        (err) => this.onError?.(err),
+        () => {
+          this.onError('mermaid', null);
+          this.sync.rebuild();
+        },
+        (err) => this.onError('mermaid', err),
       );
     }
   }

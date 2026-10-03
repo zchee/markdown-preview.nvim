@@ -154,7 +154,8 @@ CHECKS: dict[str, str] = {
         "qa('[data-line-start]').every(e => Number(e.dataset.lineStart) < 400 && Number(e.dataset.lineEnd) < 400), '']"
     ),
     "forged data-mp-open dropped": "[q('#user-content-forged-open') !== null && !q('#user-content-forged-open').hasAttribute('data-mp-open'), q('#user-content-forged-open')?.outerHTML]",
-    "forged data-mp-video dropped, no player": "[q('#user-content-forged-video') !== null && !q('#user-content-forged-video').hasAttribute('data-mp-video') && !q('video'), '']",
+    "forged data-mp-video dropped, no player": "[q('#user-content-forged-video') !== null && !q('#user-content-forged-video').hasAttribute('data-mp-video') && !qa('video').some(v => v.getAttribute('src').includes('example.com')), '']",
+    "video link becomes a player served from file/": "[q(`details.mp-video[open] video[controls][src=\"file/${D}images/clip.mp4\"]`) !== null, q('details.mp-video')?.outerHTML.slice(0, 160)]",
     "no authored data-mp-* attribute survives": (
         "(() => { const allowed = new Set(['data-mp-kind', 'data-mp-lang', 'data-mp-open', 'data-mp-media', 'data-mp-unavailable']); "
         "const bad = qa('[id^=user-content-forged], [id^=user-content-fake]').flatMap(e => [...e.attributes].filter(a => a.name.startsWith('data-mp-') || a.name.startsWith('data-line-')).map(a => e.id + '@' + a.name)); "
@@ -243,6 +244,55 @@ RERENDER_CHECKS: dict[str, str] = {
         "B.append(el); const t0 = performance.now(); P.sync.rebuild(lines); const ms = performance.now() - t0; "
         "P.sync.setCursor(lines + 50); const band = parseFloat(document.getElementById('mp-cursor').style.top); el.remove(); P.sync.rebuild(lines); P.sync.setCursor(null); "
         "return [ms < 50 && Number.isFinite(band) && band < B.getBoundingClientRect().bottom + scrollY, Math.round(ms * 10) / 10 + ' ms, band ' + band] })()"
+    ),
+    "authored HTML does not merge the document into one segment": (
+        "(() => { const P = window.__mp.preview; const original = P.source.split('\\n'); "
+        "const paras = Array.from({ length: 200 }, (_, i) => ['Paragraph ' + i + '.', '']).flat(); "
+        "const cases = { 'unclosed <p align>': ['<p align=\"center\">', '<img src=\"images/swatch-light.png\" alt=\"logo\">', ''], "
+        "'comment holding <div>': ['<!-- <div> -->', ''], '<ul><li> without </li>': ['<ul><li>a</ul>', ''], "
+        "'closed <p align>': ['<p align=\"center\">', '<img src=\"images/swatch-light.png\" alt=\"logo\">', '</p>', ''] }; "
+        "const out = {}; for (const [name, head] of Object.entries(cases)) { P.setDocument(P.path, [...head, ...paras]); out[name] = P.stats.segments; } "
+        "P.setDocument(P.path, original); "
+        "return [Object.values(out).every(n => n >= 200), JSON.stringify(out)] })()"
+    ),
+    "a failing code block leaves the others highlighted and clears its error": (
+        "(async () => { const P = window.__mp.preview; const original = P.source.split('\\n'); "
+        "const settle = async () => { for (let i = 0; i < 400 && document.documentElement.dataset.mpRender !== 'complete'; i++) await new Promise(r => setTimeout(r, 25)); }; "
+        "const doc = ['```ruby', 'puts 1', '```', '', '```js', 'let a = 1;', '```', '', '```lua', 'local b = 2', '```']; "
+        "const orig = Element.prototype.replaceChildren; "
+        "Element.prototype.replaceChildren = function (...a) { if (this.tagName === 'PRE' && this.parentElement?.dataset.mpLang === 'ruby') throw new Error('injected highlight failure'); return orig.apply(this, a); }; "
+        "P.setDocument(P.path, doc); await settle(); "
+        "const during = { ruby: !!q('[data-mp-lang=ruby] span'), js: !!q('[data-mp-lang=js] span[class^=pl-]'), lua: !!q('[data-mp-lang=lua] span[class^=pl-]'), "
+        "error: window.__mp.errors.some(e => e.includes('injected highlight failure')) }; "
+        "Element.prototype.replaceChildren = orig; "
+        "P.setDocument(P.path, doc.map(l => l === 'puts 1' ? 'puts 2' : l)); await settle(); "
+        "const after = { ruby: !!q('[data-mp-lang=ruby] span[class^=pl-]'), error: window.__mp.errors.some(e => e.includes('injected')) }; "
+        "P.setDocument(P.path, original); await settle(); "
+        "return [!during.ruby && during.js && during.lua && during.error && after.ruby && !after.error, JSON.stringify({ during, after })] })()"
+    ),
+    "a render that throws recovers and shows the error": (
+        "(async () => { const P = window.__mp.preview; const original = P.source.split('\\n'); const html = document.documentElement; "
+        "const sanitize = P.renderer.sanitize; const box = document.getElementById('mp-errors'); let calls = 0; "
+        "P.renderer.sanitize = (...a) => { if (calls++ === 0) throw new Error('injected sanitize failure'); return sanitize(...a); }; "
+        "P.setDocument(P.path, ['# Once', '', 'text']); "
+        "const once = { h1: q('h1')?.textContent, shown: !box.hidden && box.textContent.includes('injected sanitize failure'), state: html.dataset.mpRender }; "
+        "P.renderer.sanitize = () => { throw new Error('injected sanitize failure'); }; "
+        "P.setDocument(P.path, ['# Always', '', 'text']); "
+        "const always = { state: html.dataset.mpRender, plain: q('pre')?.textContent.startsWith('# Always'), shown: !box.hidden }; "
+        "P.renderer.sanitize = sanitize; P.setDocument(P.path, original); "
+        "const recovered = { h1: q('h1')?.textContent.includes('GitHub Markdown feature fixture'), state: html.dataset.mpRender, cleared: !window.__mp.errors.some(e => e.includes('injected')) }; "
+        "for (let i = 0; i < 400 && html.dataset.mpRender !== 'complete'; i++) await new Promise(r => setTimeout(r, 25)); "
+        "return [once.h1 === 'Once' && once.shown && always.state === 'failed' && always.plain && always.shown && recovered.h1 && recovered.cleared, JSON.stringify({ once, always, recovered })] })()"
+    ),
+    "details_tags_open toggle and fresh render agree; video players stay open": (
+        "(() => { const P = window.__mp.preview; const state = () => qa('details').map(d => (d.classList.contains('mp-video') ? 'video:' : '') + d.querySelector('summary')?.textContent.trim() + '=' + d.open).join('|'); "
+        "const base = JSON.parse(JSON.stringify(P.config)); "
+        "P.setConfig({ ...base, details_tags_open: false }); const toggledOff = state(); "
+        "P.segmentsPath = null; P.render(); const freshOff = state(); "
+        "P.setConfig({ ...base, details_tags_open: true }); const on = state(); "
+        "const ok = toggledOff === freshOff && /Tips for collapsed sections=false/.test(toggledOff) && /Open by default=true/.test(toggledOff) && "
+        "/video:clip.mp4=true/.test(toggledOff) && !/=false/.test(on); "
+        "return [ok, JSON.stringify({ toggledOff, freshOff, on })] })()"
     ),
     "theme config switches stylesheets, attributes and mermaid": (
         "(async () => { const P = window.__mp.preview; const html = document.documentElement; "
@@ -341,9 +391,11 @@ def nvim_lua(server: str, code: str) -> None:
 # broadcast by the next public toggle.
 SSE_CONFIG_STEPS: list[tuple[str, str, str]] = [
     (
-        "update_config over SSE: details_tags_off closes <details>",
+        "update_config over SSE: details_tags_off shows <details> as authored",
         'require("markdown-preview").details_tags_off()',
-        "[...document.querySelectorAll('#mp-body details:not(.mp-video)')].every(d => !d.open)",
+        "(() => { const d = [...document.querySelectorAll('#mp-body details')]; "
+        "const by = (t) => d.find(x => x.querySelector('summary')?.textContent.includes(t)); "
+        "return by('Tips for collapsed sections')?.open === false && by('Open by default')?.open === true && by('clip.mp4')?.open === true; })()",
     ),
     (
         "update_config over SSE: dark high-contrast theme applied",

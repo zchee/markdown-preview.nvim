@@ -127,7 +127,11 @@ function loadEngine(cdn) {
     });
     await engine.fetchScopes(COMMON);
     return engine;
-  })();
+  })().catch((err) => {
+    // A failed load is not kept, so the next render tries again.
+    enginePromise = undefined;
+    throw err;
+  });
   return enginePromise;
 }
 
@@ -150,23 +154,29 @@ export async function highlightCode(root, cdn) {
   // Grammars outside the common set are fetched for all languages at once.
   await Promise.all([...new Set(pending.map((block) => block.dataset.mpLang))].map((flag) => engine.resolve(flag)));
   let sliceStart = performance.now();
+  let failure = null;
   for (const block of pending) {
     if (!block.isConnected || highlightSource.has(block)) continue;
     const key = codeKey(block);
-    const scope = await engine.resolve(block.dataset.mpLang);
-    const pre = block.querySelector('pre');
-    // The block was morphed to new content while the grammar loaded; the
-    // highlight pass after that render picks it up.
-    if (!block.isConnected || codeKey(block) !== key) continue;
-    if (scope && pre) {
-      const grammar = await engine.grammar(scope);
-      if (grammar && codeKey(block) === key) {
-        const tree = engine.parse(pre.textContent, grammar, engine.registry.getColorMap());
-        const frag = document.createDocumentFragment();
-        for (const child of tree.children) frag.append(toDom(child));
-        pre.replaceChildren(frag);
-        block.classList.add(`highlight-${scope.replaceAll('.', '-')}`);
+    try {
+      const scope = await engine.resolve(block.dataset.mpLang);
+      const pre = block.querySelector('pre');
+      // The block was morphed to new content while the grammar loaded; the
+      // highlight pass after that render picks it up.
+      if (!block.isConnected || codeKey(block) !== key) continue;
+      if (scope && pre) {
+        const grammar = await engine.grammar(scope);
+        if (grammar && codeKey(block) === key) {
+          const tree = engine.parse(pre.textContent, grammar, engine.registry.getColorMap());
+          const frag = document.createDocumentFragment();
+          for (const child of tree.children) frag.append(toDom(child));
+          pre.replaceChildren(frag);
+          block.classList.add(`highlight-${scope.replaceAll('.', '-')}`);
+        }
       }
+    } catch (err) {
+      // One bad grammar or block leaves that block plain and the rest highlighted.
+      failure ??= err;
     }
     highlightSource.set(block, key);
     if (performance.now() - sliceStart > 12) {
@@ -174,5 +184,6 @@ export async function highlightCode(root, cdn) {
       sliceStart = performance.now();
     }
   }
+  if (failure) throw failure;
   return pending.length;
 }

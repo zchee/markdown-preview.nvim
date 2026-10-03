@@ -54,4 +54,4 @@ __pycache__/
 /doc/tags
 
 # Image fixtures for the browser checks; the user-level ignore drops *.png
-!/tests/fixtures/images/*.png
+!/tests/fixtures/images/*

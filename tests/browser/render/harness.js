@@ -8,8 +8,17 @@ import { Preview } from '/web/preview.js';
 const params = new URLSearchParams(location.search);
 const cdn = params.get('cdn') ?? 'https://cdn.jsdelivr.net/npm';
 const fixture = params.get('fixture') ?? 'github-features.md';
-const errors = [];
+// Failures by key, shown in #mp-errors the way app.js shows them.
+const errors = new Map();
 const opened = [];
+const errorsEl = document.getElementById('mp-errors');
+
+function onError(key, err) {
+  if (err) errors.set(key, String(err?.message ?? err));
+  else errors.delete(key);
+  errorsEl.textContent = [...errors.values()].join('\n');
+  errorsEl.hidden = errors.size === 0;
+}
 
 const libs = await loadCore(cdn);
 const preview = new Preview({
@@ -21,9 +30,15 @@ const preview = new Preview({
     theme: { name: params.get('theme') ?? 'light', high_contrast: params.get('contrast') === 'high' },
   },
   onOpen: (path) => opened.push(path),
-  onError: (err) => errors.push(String(err?.message ?? err)),
+  onError,
 });
 const text = await (await fetch(`/tests/fixtures/${fixture}`)).text();
 const cursor = params.get('cursor');
 preview.setDocument(fixture, text.replace(/\n$/, '').split('\n'), cursor === null ? null : Number(cursor));
-window.__mp = { preview, errors, opened };
+window.__mp = {
+  preview,
+  opened,
+  get errors() {
+    return [...errors.values()];
+  },
+};

@@ -151,6 +151,10 @@ Will have a blank line separating both lines
   <img alt="Swatch that follows the theme" src="images/swatch-light.png">
 </picture>
 
+## Videos
+
+A link to a video file becomes a player: [clip](images/clip.mp4)
+
 ## Lists
 
 - George Washington

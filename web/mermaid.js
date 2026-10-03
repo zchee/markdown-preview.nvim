@@ -12,7 +12,14 @@ let counter = 0;
 let memo = new Map();
 
 function loadMermaid(cdn) {
-  mermaidPromise ??= importFrom(cdnUrl(cdn, VERSIONS.mermaid)).then((mod) => mod.default);
+  // A failed load is not kept, so the next render tries again.
+  mermaidPromise ??= importFrom(cdnUrl(cdn, VERSIONS.mermaid)).then(
+    (mod) => mod.default,
+    (err) => {
+      mermaidPromise = undefined;
+      throw err;
+    },
+  );
   return mermaidPromise;
 }
 
@@ -56,5 +63,8 @@ export async function renderMermaid(root, cdn, dark) {
     mermaidSource.set(el, source);
     rendered++;
   }
+  // Keep only diagrams still on the page.
+  const onPage = new Set(blocks.map((el) => mermaidSource.get(el) ?? mermaidKey(el)));
+  for (const source of memo.keys()) if (!onPage.has(source)) memo.delete(source);
   return rendered;
 }

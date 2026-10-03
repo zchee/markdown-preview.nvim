@@ -125,6 +125,35 @@ function connect(preview) {
   });
 }
 
+const RELOAD_KEY = 'mp-core-reload-delay';
+
+function storedDelay() {
+  try {
+    return Number(sessionStorage.getItem(RELOAD_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function storeDelay(ms) {
+  try {
+    if (ms) sessionStorage.setItem(RELOAD_KEY, String(ms));
+    else sessionStorage.removeItem(RELOAD_KEY);
+  } catch {
+    // Without storage the delay simply restarts at its minimum.
+  }
+}
+
+// A module that failed to load stays failed until the page reloads, so a
+// failed core load is retried by reloading, waiting longer each time
+// (5 s doubling up to 60 s). The plain text stays readable meanwhile.
+function scheduleReload() {
+  const delay = Math.min(Math.max(storedDelay() * 2, 5000), 60000);
+  storeDelay(delay);
+  setTimeout(() => location.reload(), delay);
+  return delay;
+}
+
 async function main() {
   const bootstrap = readBootstrap();
   if (!bootstrap) {
@@ -135,6 +164,7 @@ async function main() {
   let preview;
   try {
     const libs = await loadCore(bootstrap.cdn);
+    storeDelay(0);
     preview = new Preview({
       root: body,
       band,
@@ -142,10 +172,11 @@ async function main() {
       cdn: bootstrap.cdn,
       config: bootstrap.config,
       onOpen: openMarkdown,
-      onError: (err) => showError(err.url ?? 'render', err.message),
+      onError: (key, err) => showError(key, err && (err.message ?? String(err))),
     });
   } catch (err) {
-    showError('core', `${err.message}. Showing the plain text instead.`);
+    const delay = scheduleReload();
+    showError('core', `${err.message}. Showing the plain text; retrying in ${delay / 1000} s.`);
     html.dataset.mpRender = 'failed';
     preview = new PlainPreview(body);
   }

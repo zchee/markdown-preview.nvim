@@ -554,7 +554,7 @@ export function createRenderer(libs) {
       link.replaceWith(videoPlayer(link));
     }
     if (detailsOpen) {
-      for (const details of fragment.querySelectorAll('details')) details.open = true;
+      for (const details of fragment.querySelectorAll('details:not(.mp-video)')) details.open = true;
     }
     return fragment;
   }

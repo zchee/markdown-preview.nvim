@@ -27,6 +27,9 @@ export class LibraryLoadError extends Error {
   }
 }
 
+// The browser keeps a module URL that failed to load as failed for the life of
+// the page (the HTML module map), so importing it again fails at once; only a
+// reload retries it. Classic scripts and fetch() do retry.
 export async function importFrom(url) {
   try {
     return await import(url);
