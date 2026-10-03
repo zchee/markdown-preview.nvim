@@ -58,10 +58,17 @@ jobs:
           repository: nvim-lua/plenary.nvim
           ref: 74b06c6c75e4eeb3108ec01852001636d85a932b
           path: .deps/plenary.nvim
-      - uses: rhysd/action-setup-vim@v1
-        with:
-          neovim: true
-          version: ${{ matrix.neovim }}
+      # The release tarball is extracted directly: rhysd/action-setup-vim fails on ubuntu-26.04
+      # because it renames across filesystems (/tmp to $HOME; its issue #80), and its nightly leg
+      # only passes by falling back to a source build.
+      - name: Install Neovim ${{ matrix.neovim }}
+        env:
+          NEOVIM_VERSION: ${{ matrix.neovim }}
+        run: |
+          url="https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-linux-x86_64.tar.gz"
+          curl -fsSL --retry 3 "$url" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/nvim-linux-x86_64/bin/nvim" --version | head -1
       - name: Lua specs
         env:
           PLENARY_DIR: ${{ github.workspace }}/.deps/plenary.nvim
