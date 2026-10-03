@@ -165,8 +165,11 @@ export function createSync({ scroller, content, band }) {
 
   function applyBandStyle() {
     const cl = config.cursor_line;
-    band.style.background = cl.color ?? "";
-    band.style.opacity = cl.opacity == null ? "" : String(cl.opacity);
+    // Config values reach the page only as single property values, never as CSS text.
+    if (cl.color == null) band.style.removeProperty("background");
+    else band.style.setProperty("background", String(cl.color));
+    if (cl.opacity == null) band.style.removeProperty("opacity");
+    else band.style.setProperty("opacity", String(cl.opacity));
   }
 
   // Moves the band to the current cursor line and scrolls to it. `fromLayout` marks a
@@ -174,7 +177,7 @@ export function createSync({ scroller, content, band }) {
   function apply(fromLayout = false) {
     if (destroyed) return;
     if (cursor === null || offsets.length === 0) {
-      band.style.display = "none";
+      band.style.setProperty("display", "none");
       return;
     }
     const at = Math.min(cursor, offsets.length - 1);
@@ -194,9 +197,9 @@ export function createSync({ scroller, content, band }) {
       }
     }
 
-    band.style.top = `${y - bandOrigin}px`;
-    band.style.height = `${h}px`;
-    band.style.display = config.cursor_line.disable ? "none" : "block";
+    band.style.setProperty("top", `${y - bandOrigin}px`);
+    band.style.setProperty("height", `${h}px`);
+    band.style.setProperty("display", config.cursor_line.disable ? "none" : "block");
     if (target !== null) {
       const el = isDocumentScroller(scroller) ? window : scroller;
       el.scrollTo({ top: Math.max(0, target), behavior });
@@ -232,10 +235,10 @@ export function createSync({ scroller, content, band }) {
     observer.disconnect();
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
-    band.style.display = "none";
+    band.style.setProperty("display", "none");
   }
 
-  band.style.display = "none";
+  band.style.setProperty("display", "none");
   rebuild();
 
   return { rebuild, setCursor, setConfig, suppressNextScroll, destroy };

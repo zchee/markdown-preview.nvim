@@ -77,7 +77,8 @@ class Page:
                 self.exceptions.append(exc.get("description") or details.get("text", ""))
             elif method == "Log.entryAdded":
                 entry = params["entry"]
-                self.console.append(f"log.{entry['level']} [{entry['source']}]: {entry['text']}")
+                url = f" ({entry['url']})" if entry.get("url") else ""
+                self.console.append(f"log.{entry['level']} [{entry['source']}]: {entry['text']}{url}")
 
     async def call(self, method: str, **params: Any) -> dict:
         """Send one protocol command and wait for its result."""
@@ -121,9 +122,12 @@ class Page:
 class Chrome:
     """A headless Chrome process with a private temporary profile."""
 
-    def __init__(self, width: int = 1280, height: int = 900) -> None:
+    def __init__(self, width: int = 1280, height: int = 900, mobile: bool = False) -> None:
+        # The viewport is set through device-metrics emulation, which (unlike
+        # --window-size) is not clamped to a 500 px minimum width.
         self.width = width
         self.height = height
+        self.mobile = mobile
         self.profile = Path(tempfile.mkdtemp(prefix="mp-chrome-"))
         self.proc: subprocess.Popen | None = None
         self.pages: list[Page] = []
@@ -195,7 +199,7 @@ class Chrome:
             width=self.width,
             height=self.height,
             deviceScaleFactor=1,
-            mobile=False,
+            mobile=self.mobile,
         )
         await page.call("Page.navigate", url=url)
         return page
