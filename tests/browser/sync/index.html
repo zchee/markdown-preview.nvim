@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sync harness</title>
+<style>
+  html, body { margin: 0; padding: 0; }
+  #scroller {
+    position: relative;
+    box-sizing: content-box;
+    height: 600px;
+    margin-top: 37px;
+    border: 5px solid #888;
+    padding: 13px 0 0 0;
+    overflow: auto;
+    /* Scroll anchoring would shift scrollTop on its own when content above the view
+       grows, hiding whether sync.js scrolled. */
+    overflow-anchor: none;
+  }
+  #band { position: absolute; left: 0; right: 0; pointer-events: none; }
+  #content { position: relative; }
+  #content .blk { position: absolute; left: 0; right: 0; margin: 0; padding: 0; box-sizing: border-box; }
+  #content.flow > * { margin: 0; padding: 0; display: block; }
+  #content.flow summary { height: 30px; line-height: 30px; }
+</style>
+<script type="module" src="./harness.js"></script>
+</head>
+<body>
+<div id="scroller">
+  <div id="band"></div>
+  <div id="content"></div>
+</div>
+</body>
+</html>

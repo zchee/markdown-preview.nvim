@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sync harness, document scroller</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow-anchor: none; }
+  /* As in web/index.html: the band's containing block is <body>. The margin on <main>
+     collapses through <body>, so the containing block starts 50px down the page. */
+  body { position: relative; }
+  main { margin-top: 50px; }
+  #band { position: absolute; left: 0; right: 0; pointer-events: none; }
+  #content { position: relative; }
+  #content .blk { position: absolute; left: 0; right: 0; margin: 0; padding: 0; box-sizing: border-box; }
+  #content.flow > * { margin: 0; padding: 0; display: block; }
+</style>
+<script type="module" src="./harness.js"></script>
+</head>
+<body>
+<main><article id="content"></article></main>
+<div id="band" hidden></div>
+</body>
+</html>
